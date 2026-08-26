@@ -6,87 +6,123 @@ Every push to any branch, in any listed repo, uploads a zip of that branch's cod
 Everything here runs on the AWS CLI, `git` over SSH, and the GitHub web UI. There is no
 GitHub CLI, no personal access token, and no Python dependency.
 
-Phases 1 and 2 are complete. Start at phase 3.
+**Phases 1 to 4 are complete.** The pilot repo `3d-print-store/documentation` is backing up
+on every push. What remains is phase 5, rolling out to the other sixteen.
+
+`repos.txt` holds the canonical list of seventeen repos, all confirmed reachable over SSH.
+Three of them default to `dev` rather than `main`: `hire-link/finops`, `hire-link/admin-panel`
+and `Upwork-Extension/upwrok-auto-submit-gig-extension`. The script reads each repo's own
+default branch, so this needs no special handling.
 
 ---
 
-## Phase 1: AWS (done)
+## Phase 5: roll out to everything
 
-### 1.1 Confirm the bucket and its region
+### 5.1 Add secrets to the remaining sixteen repos
 
-```bash
-aws s3api get-bucket-location --bucket git-projects-backups
-```
+Each repo needs `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` under Settings, Secrets and
+variables, Actions. Same values as the pilot.
 
-A `null` result means `us-east-1`. Anything else is the literal region name. It has to match
-the `aws-region` default in the workflow, or every upload fails with a confusing redirect error.
+Do this before the rollout. The rollout commit is itself a push, so it triggers the workflow
+immediately, and a run that starts without credentials fails.
 
-### 1.2 Block public access
+Running `./rollout.sh` prints every settings URL at the end, so you can work down that list.
 
-```bash
-aws s3api put-public-access-block --bucket git-projects-backups \
-  --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-```
+- https://github.com/turka-meet-bot/meet_bot/settings/secrets/actions
+- https://github.com/3d-print-store/web-app/settings/secrets/actions
+- https://github.com/hire-link/finops/settings/secrets/actions
+- https://github.com/hire-link/mobile/settings/secrets/actions
+- https://github.com/hire-link/hirelink-backend/settings/secrets/actions
+- https://github.com/hire-link/admin-panel/settings/secrets/actions
+- https://github.com/Upwork-Extension/upwork-backend/settings/secrets/actions
+- https://github.com/Upwork-Extension/graphQL/settings/secrets/actions
+- https://github.com/Upwork-Extension/upwrok-auto-submit-gig-extension/settings/secrets/actions
+- https://github.com/gouravturka/water-tank-app/settings/secrets/actions
+- https://github.com/gouravturka/water-tank-analysis/settings/secrets/actions
+- https://github.com/gouravturka/iot/settings/secrets/actions
+- https://github.com/Snehal-Turka/healthcare/settings/secrets/actions
+- https://github.com/Verify-Staff/verify-staff-backend/settings/secrets/actions
+- https://github.com/Verify-Staff/verify-staff-web/settings/secrets/actions
+- https://github.com/gouravturka/linkdin-outreach/settings/secrets/actions
 
-Encryption at rest is already on. S3 applies SSE-S3 to new objects by default.
-
-### 1.3 Set a lifecycle rule
-
-Without one, every push to every branch across sixteen repos adds an object that never goes away.
-
-```bash
-cat > /tmp/lifecycle.json <<'JSON'
-{
-  "Rules": [{
-    "ID": "expire-snapshots",
-    "Status": "Enabled",
-    "Filter": { "Prefix": "" },
-    "Expiration": { "Days": 90 },
-    "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
-  }]
-}
-JSON
-
-aws s3api put-bucket-lifecycle-configuration \
-  --bucket git-projects-backups \
-  --lifecycle-configuration file:///tmp/lifecycle.json
-```
-
-### 1.4 Create the IAM user
-
-Write-only, one bucket. If the key leaks, the worst anyone can do is write junk into it.
-They cannot read your code or delete anything.
+### 5.2 Run the rollout
 
 ```bash
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-aws iam create-policy --policy-name gh-snapshot-put --policy-document '{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": "s3:PutObject",
-    "Resource": "arn:aws:s3:::git-projects-backups/*"
-  }]
-}'
-
-aws iam create-user --user-name github-actions-snapshot
-aws iam attach-user-policy --user-name github-actions-snapshot \
-  --policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/gh-snapshot-put"
-
-aws iam create-access-key --user-name github-actions-snapshot
+cd ~/Documents/Projects/gh-workflows/bootstrap
+./rollout.sh
 ```
 
-Keep `AccessKeyId` and `SecretAccessKey` to hand. You paste them into GitHub in phase 4.
+The pilot repo is in the list too. It already has the current file, so the script skips it
+without a commit.
+
+Watch the output for these lines:
+
+| Line | Meaning |
+|---|---|
+| `pushed to <branch>` | Workflow committed, first backup starting now |
+| `already up to date` | Nothing to do, the file is current |
+| `SKIP: no access` | The `github-turka` key cannot read that repo |
+| `FAILED: push rejected` | Branch protection on the default branch, or no write access |
+
+### 5.3 Confirm the spread
+
+```bash
+aws s3 ls --recursive s3://git-projects-backups/ | awk '{print $4}' | cut -d/ -f1-2 | sort -u
+```
+
+Only repos whose default branch received the rollout commit appear immediately. The rest
+show up as people push to them.
 
 ---
 
-## Phase 2: publish the central repo (done)
+## Ongoing
 
-The repo is public at `Snehal-Turka/gh-workflows`, tagged `v1`. Public matters, because a
-private reusable workflow can only be called by repos under the same owner, and yours span
-seven. The file contains no secrets.
+### Change the workflow for all repos at once
 
+Edit it in the central repo, then move the tag. The seventeen callers pick it up on their next
+push, and you never touch them again.
+
+```bash
+git commit -am "..." && git push
+git tag -f v1 && git push -f origin v1
+```
+
+### Add or drop a repo
+
+Append `owner/repo` to `repos.txt`, add the two secrets in its settings, and re-run
+`./rollout.sh`. It is safe to re-run across the whole list, since repos that already have the
+current file are skipped without a commit.
+
+Removing a line from `repos.txt` stops future rollouts touching that repo, but it does not
+remove the workflow file already there. Delete
+`.github/workflows/snapshot-to-s3.yml` from the repo itself to actually stop its backups.
+
+### Rotate the AWS key
+
+Create a new access key, update the secret in all seventeen repos, then delete the old key with
+`aws iam delete-access-key`. This is the part that hurts, and it is the reason to move to OIDC
+once the POC proves out.
+
+### Check the bucket size after a week
+
+Seventeen repos pushing all day produces more objects than you expect. If the 90 day expiry
+looks too generous once real traffic lands, shorten the lifecycle rule.
+
+---
+
+## What phases 1 to 4 set up
+
+### AWS
+
+Bucket `git-projects-backups` with public access blocked, a 90 day expiry lifecycle rule, and
+an IAM user `github-actions-snapshot` holding one permission, `s3:PutObject` on that one
+bucket. If the key leaks, the worst anyone can do is write junk into it. They cannot read your
+code or delete anything.
+
+### The central repo
+
+`Snehal-Turka/gh-workflows` is public and tagged `v1`. Public matters, because a private
+reusable workflow can only be called by repos under the same owner, and yours span seven.
 Nothing works until the `v1` tag exists, since every caller references `@v1`.
 
 ### Why the caller passes secrets by name
@@ -104,128 +140,31 @@ seven owners calling one central repo, so every call crosses that boundary and `
 silently passes nothing. The run then fails before it starts, with
 `Secret AWS_ACCESS_KEY_ID is required, but not provided while calling`.
 
----
+### SSH, not github.com
 
-## Phase 3: check SSH access
-
-`rollout.sh` clones and pushes over SSH, so it needs a key that reaches all sixteen repos.
-Your `~/.ssh/config` binds keys to host aliases rather than to `github.com`, and the alias
-that reaches every repo is `github-turka`. That is the script's default. Override it with
-`SSH_HOST=github-other ./rollout.sh` if that ever changes.
+`rollout.sh` clones and pushes over SSH. Your `~/.ssh/config` binds keys to host aliases
+rather than to `github.com`, and `github-turka` is the alias that reaches all seventeen repos.
+That is the script's default. Override it with `SSH_HOST=github-other ./rollout.sh`.
 
 ```bash
-cd ~/Documents/Projects/gh-workflows/bootstrap
-./rollout.sh --check
+./rollout.sh --check     # every line should print a branch name
 ```
-
-Every line should print a branch name. `NO ACCESS` means that alias cannot read that repo.
-Note that this proves read access. Pushing also needs write access, and a protected default
-branch rejects a direct push regardless.
 
 ---
 
-## Phase 4: pilot on one repo
-
-Prove the whole path works before touching the other fifteen. `repos.txt` already holds the
-single pilot repo, with the full list parked in `repos.full.txt`.
-
-### 4.1 Add the secrets first
-
-Go to https://github.com/3d-print-store/documentation/settings/secrets/actions and add two
-repository secrets:
-
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-
-Do this before the rollout. The rollout commit is itself a push, so it triggers the workflow
-immediately, and a run that starts without credentials just fails.
-
-### 4.2 Run the rollout
-
-```bash
-cd ~/Documents/Projects/gh-workflows/bootstrap
-cat repos.txt          # expect: 3d-print-store/documentation
-./rollout.sh
-```
-
-The script clones each repo shallowly into a temp directory, drops in the caller workflow,
-commits, and pushes to the default branch. It skips repos where the file is already current.
-
-### 4.3 Verify
-
-Watch the run at https://github.com/3d-print-store/documentation/actions, then confirm the
-object landed:
-
-```bash
-aws s3 ls --recursive s3://git-projects-backups/3d-print-store/
-```
-
-You should see one object under `3d-print-store/documentation/main/`.
+## Troubleshooting a failed run
 
 | Symptom | Cause |
 |---|---|
-| `AccessDenied` on upload | IAM policy ARN or bucket name mismatch in step 1.4 |
+| `Secret AWS_ACCESS_KEY_ID is required` | Secrets not added to that repo, or the caller uses `secrets: inherit` |
+| `AccessDenied` on upload | IAM policy ARN or bucket name mismatch |
 | A redirect or region error | `aws-region` in the workflow does not match the bucket |
 | `workflow was not found` | The `v1` tag was never pushed, or the central repo is private |
-| `Secret AWS_ACCESS_KEY_ID is required` | The secrets were not added before the push, or the caller uses `secrets: inherit` |
 | `push rejected` from the script | Branch protection on the default branch, or no write access |
-
----
-
-## Phase 5: roll out to everything
-
-### 5.1 Add secrets to the remaining fifteen repos
-
-Same two secrets, same values. `./rollout.sh` prints every settings URL at the end of its run,
-so you can work down that list.
-
-### 5.2 Restore the full list and run it
-
-```bash
-mv repos.full.txt repos.txt
-./rollout.sh
-```
-
-Watch the output for `SKIP` and `FAILED` lines.
-
-### 5.3 Confirm the spread
-
-```bash
-aws s3 ls --recursive s3://git-projects-backups/ | awk '{print $4}' | cut -d/ -f1-2 | sort -u
-```
-
-Only repos whose default branch received the rollout commit appear immediately. The rest
-show up as people push to them.
-
----
-
-## Ongoing
-
-### Change the workflow for all repos at once
-
-Edit it in the central repo, then move the tag. The sixteen callers pick it up on their next
-push, and you never touch them again.
-
-```bash
-git commit -am "..." && git push
-git tag -f v1 && git push -f origin v1
-```
-
-### Add a new repo
-
-Append `owner/repo` to `repos.txt`, add the two secrets in its settings, and re-run
-`./rollout.sh`. It is safe to re-run across the whole list, since repos that already have the
-current file are skipped without a commit.
-
-### Rotate the AWS key
-
-Create a new access key, update the secret in all sixteen repos, then delete the old key with
-`aws iam delete-access-key`. This is the part that hurts, and it is the reason to move to OIDC
-once the POC proves out.
 
 ## Known gaps
 
-- The AWS key lives in all sixteen repos. Anyone with write access to any of them can read it
+- The AWS key lives in all seventeen repos. Anyone with write access to any of them can read it
   out through a workflow. This is the cost of the access-key approach, and OIDC removes it.
 - Tag pushes are not backed up, only branches.
 - Nothing dedupes. Ten pushes to a branch in an hour produce ten near-identical zips.
