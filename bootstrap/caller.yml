@@ -3,6 +3,7 @@ name: Snapshot to S3
 on:
   push:
     branches: ['**']
+  workflow_dispatch:
 
 jobs:
   snapshot:
