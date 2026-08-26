@@ -6,6 +6,9 @@ Every push to any branch, in any listed repo, uploads a zip of that branch's cod
 Everything here runs on the AWS CLI, `git` over SSH, and the GitHub web UI. There is no
 GitHub CLI, no personal access token, and no Python dependency.
 
+This document is the record of the original setup. For day to day work, adding a repo to the
+backups or changing how they run, see [README.md](README.md).
+
 **Phases 1 to 4 are complete.** The pilot repo `3d-print-store/documentation` is backing up
 on every push. What remains is phase 5, rolling out to the other sixteen.
 
@@ -89,13 +92,7 @@ git tag -f v1 && git push -f origin v1
 
 ### Add or drop a repo
 
-Append `owner/repo` to `repos.txt`, add the two secrets in its settings, and re-run
-`./rollout.sh`. It is safe to re-run across the whole list, since repos that already have the
-current file are skipped without a commit.
-
-Removing a line from `repos.txt` stops future rollouts touching that repo, but it does not
-remove the workflow file already there. Delete
-`.github/workflows/snapshot-to-s3.yml` from the repo itself to actually stop its backups.
+See [README.md](README.md), which covers both start to finish.
 
 ### Rotate the AWS key
 
