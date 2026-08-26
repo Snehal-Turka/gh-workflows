@@ -1,0 +1,10 @@
+name: Snapshot to S3
+
+on:
+  push:
+    branches: ['**']
+
+jobs:
+  snapshot:
+    uses: Snehal-Turka/gh-workflows/.github/workflows/snapshot-to-s3.yml@v1
+    secrets: inherit

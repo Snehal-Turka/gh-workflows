@@ -1,0 +1,52 @@
+name: Snapshot to S3
+
+on:
+  workflow_call:
+    inputs:
+      bucket:
+        type: string
+        default: git-projects-backups
+      aws-region:
+        type: string
+        default: ap-south-1
+      lfs:
+        type: boolean
+        default: false
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: snapshot-${{ github.repository }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: ${{ inputs.lfs }}
+
+      - name: Build zip
+        id: zip
+        run: |
+          set -euo pipefail
+          file="$(date -u +'%Y%m%dT%H%M%SZ')-$(git rev-parse --short HEAD).zip"
+          git archive --format=zip -o "$file" HEAD
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Upload
+        run: |
+          set -euo pipefail
+          dest="s3://${{ inputs.bucket }}/${{ github.repository }}/${{ github.ref_name }}/${{ steps.zip.outputs.file }}"
+          aws s3 cp "${{ steps.zip.outputs.file }}" "$dest"
+          echo "Uploaded \`$dest\`" >> "$GITHUB_STEP_SUMMARY"
