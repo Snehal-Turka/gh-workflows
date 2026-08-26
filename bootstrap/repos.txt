@@ -1,16 +1,1 @@
-hire-link/hirelink-backend
-hire-link/mobile
-turka-meet-bot/meet_bot
-gouravturka/water-tank-app
-gouravturka/water-tank-analysis
-gouravturka/linkdin-outreach
-gouravturka/iot
-Snehal-Turka/healthcare
-Snehal-Turka/Clickup_Automation
-Snehal-Turka/HL_Automations
-Verify-Staff/verify-staff-web
-Verify-Staff/verify-staff-backend
 3d-print-store/documentation
-3d-print-store/web-app
-Upwork-Extension/upwork-backend
-Upwork-Extension/upwrok-auto-submit-gig-extension
