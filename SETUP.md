@@ -89,6 +89,21 @@ seven. The file contains no secrets.
 
 Nothing works until the `v1` tag exists, since every caller references `@v1`.
 
+### Why the caller passes secrets by name
+
+`caller.yml` names both secrets explicitly rather than using `secrets: inherit`:
+
+```yaml
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+`inherit` only passes secrets to a reusable workflow under the same owner. Your repos span
+seven owners calling one central repo, so every call crosses that boundary and `inherit`
+silently passes nothing. The run then fails before it starts, with
+`Secret AWS_ACCESS_KEY_ID is required, but not provided while calling`.
+
 ---
 
 ## Phase 3: check SSH access
@@ -152,7 +167,7 @@ You should see one object under `3d-print-store/documentation/main/`.
 | `AccessDenied` on upload | IAM policy ARN or bucket name mismatch in step 1.4 |
 | A redirect or region error | `aws-region` in the workflow does not match the bucket |
 | `workflow was not found` | The `v1` tag was never pushed, or the central repo is private |
-| `Secret AWS_ACCESS_KEY_ID is required` | The secrets were not added before the push |
+| `Secret AWS_ACCESS_KEY_ID is required` | The secrets were not added before the push, or the caller uses `secrets: inherit` |
 | `push rejected` from the script | Branch protection on the default branch, or no write access |
 
 ---
